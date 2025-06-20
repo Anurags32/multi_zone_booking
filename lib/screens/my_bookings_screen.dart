@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import '../models/booking.dart';
 import '../providers/booking_provider.dart';
 import '../widgets/booking_card.dart';
+import '../models/service.dart';
+import '../services/data_service.dart';
 
 class MyBookingsScreen extends StatelessWidget {
   const MyBookingsScreen({super.key});
@@ -237,23 +239,171 @@ class MyBookingsScreen extends StatelessWidget {
     );
   }
 
-  void _editBooking(BuildContext context, Booking booking) {
-    // For now, we'll show a simple edit dialog
-    // In a real app, you might navigate to a dedicated edit screen
-    showDialog(
+  void _editBooking(BuildContext context, Booking booking) async {
+    final Service? service = DataService.getServiceById(booking.serviceId);
+    if (service == null) return;
+
+    DateTime selectedDate = booking.date;
+    String selectedTimeSlot = booking.timeSlot;
+    int quantity = booking.quantity;
+    final isWeekendAllowed = service.availableOnWeekends;
+    final availableTimeSlots = service.availableTimeSlots;
+
+    await showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Edit ${booking.serviceName}'),
-          content: const Text(
-            'Edit functionality would be implemented here. For now, you can delete and rebook the service.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Edit ${booking.serviceName}'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Date picker
+                    Text('Date', style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final DateTime? picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(
+                            const Duration(days: 30),
+                          ),
+                          selectableDayPredicate: (DateTime date) {
+                            if (!isWeekendAllowed) {
+                              return date.weekday >= 1 && date.weekday <= 5;
+                            }
+                            return true;
+                          },
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            selectedDate = picked;
+                          });
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              DateFormat('EEEE, MMM d, y').format(selectedDate),
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const Icon(Icons.calendar_today, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Time slot picker
+                    Text(
+                      'Time Slot',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: availableTimeSlots.map((slot) {
+                        return ChoiceChip(
+                          label: Text(slot),
+                          selected: selectedTimeSlot == slot,
+                          onSelected: (selected) {
+                            if (selected) {
+                              setState(() {
+                                selectedTimeSlot = slot;
+                              });
+                            }
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    // Quantity picker
+                    Text(
+                      'Quantity',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: quantity > 1
+                              ? () => setState(() => quantity--)
+                              : null,
+                          icon: const Icon(Icons.remove),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            quantity.toString(),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => setState(() => quantity++),
+                          icon: const Icon(Icons.add),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedTimeSlot.isNotEmpty && quantity > 0
+                      ? () {
+                          final double price = service.getPriceForZone(
+                            booking.zoneId,
+                          );
+                          final updatedBooking = booking.copyWith(
+                            date: selectedDate,
+                            timeSlot: selectedTimeSlot,
+                            quantity: quantity,
+                            totalPrice: price * quantity,
+                          );
+                          context.read<BookingProvider>().updateBooking(
+                            updatedBooking,
+                          );
+                          Navigator.of(context).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Booking updated!'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      : null,
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
